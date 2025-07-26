@@ -1,18 +1,55 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useState, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+
+const NGROK_URL = "https://81c37a477458.ngrok-free.app"; 
 
 export default function Transcribe() {
   const [permission, requestPermission] = useCameraPermissions();
+  const [detectedText, setDetectedText] = useState('Ready to capture.');
+  const [isLoading, setIsLoading] = useState(false);
   const cameraRef = useRef(null);
-  const [detectedText, setDetectedText] = useState('');
 
-  // Jika izin belum didapat
+  const handleCapture = async () => {
+    if (cameraRef.current) {
+      setIsLoading(true);
+      setDetectedText('Capturing & Sending...');
+      
+      try {
+        const photo = await cameraRef.current.takePictureAsync({ quality: 0.5, base64: true });
+
+        // Kirim gambar ke backend Colab
+        const response = await fetch(`${NGROK_URL}/predict`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            image: photo.base64, // Kirim gambar dalam format base64
+          }),
+        });
+
+        const result = await response.json();
+
+        if (result.prediction) {
+          setDetectedText(`Detected: ${result.prediction}`);
+        } else {
+          setDetectedText('Error: ' + (result.error || 'Unknown error'));
+        }
+
+      } catch (error) {
+        console.error("Error sending image: ", error);
+        setDetectedText('Failed to connect to server.');
+      } finally {
+        setIsLoading(false);
+      }
+    }
+  };
+
   if (!permission) {
     return <View><Text>Loading camera permissions...</Text></View>;
   }
 
-  // Jika izin ditolak
   if (!permission.granted) {
     return (
       <View style={styles.container}>
@@ -24,26 +61,24 @@ export default function Transcribe() {
     );
   }
 
-  const handleCapture = async () => {
-    if (cameraRef.current) {
-      let photo = await cameraRef.current.takePictureAsync({ base64: true });
-      // Simulasi hasil gesture
-      const simulatedResult = 'A';
-      setDetectedText(simulatedResult);
-    }
-  };
-
   return (
     <View style={styles.container}>
       <CameraView style={styles.camera} facing="back" ref={cameraRef} />
 
-      <TouchableOpacity style={styles.captureButton} onPress={handleCapture}>
-        <Text style={styles.captureText}>Capture Gesture</Text>
+      <TouchableOpacity 
+        style={styles.captureButton} 
+        onPress={handleCapture} 
+        disabled={isLoading}
+      >
+        {isLoading ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <Text style={styles.captureText}>Capture Gesture</Text>
+        )}
       </TouchableOpacity>
 
       {detectedText !== '' && (
         <View style={styles.resultContainer}>
-          <Text style={styles.resultLabel}>Detected:</Text>
           <Text style={styles.resultText}>{detectedText}</Text>
         </View>
       )}
@@ -68,10 +103,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 40,
     alignSelf: 'center',
-    backgroundColor: '#f3f3f3',
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
     padding: 12,
     borderRadius: 8,
   },
-  resultLabel: { fontSize: 14, color: '#666' },
   resultText: { fontSize: 24, fontWeight: 'bold', color: '#333' },
 });
